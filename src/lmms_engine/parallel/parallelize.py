@@ -1,13 +1,19 @@
-from lmms_engine.train.config import TrainingArguments
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from lmms_engine.train.config import TrainingArguments
 
 from .qwen3_moe.parallelize import apply_qwen3_moe_parallelize_fn
+from .qwen3_omni_moe.parallelize import apply_qwen3_omni_moe_parallelize_fn
 
 MODEL_TO_PARALLEL_METHOD = {
     "qwen3_moe": apply_qwen3_moe_parallelize_fn,
+    "qwen3_omni_moe": apply_qwen3_omni_moe_parallelize_fn,
+    "qwen3_omni_moe_thinker": apply_qwen3_omni_moe_parallelize_fn,
 }
 
 
-def apply_parallelize(model, model_type, train_args: TrainingArguments, **kwargs):
+def apply_parallelize(model, model_type, train_args: "TrainingArguments", **kwargs):
     """
     Apply parallelization based on model type.
 

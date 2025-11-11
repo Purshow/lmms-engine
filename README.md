@@ -95,6 +95,7 @@ python -m lmms_engine.launch.cli config_yaml=examples/qwen3_vl/example_config.ya
 | **[Qwen2.5-Omni](examples/qwen2_5_omni)** | [run.sh](examples/qwen2_5_omni/run.sh) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | Unified multimodal (image, audio, text) |
 | **[Qwen3-VL](examples/qwen3_vl)** | [run.sh](examples/qwen3_vl/run.sh) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | Native-resolution, long context (10K+ tokens) |
 | **[Qwen3-MoE](examples/qwen3_moe)** | [run.sh](examples/qwen3_moe/run.sh) | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ✅ | Mixture-of-Experts, Expert Parallelism |
+| **[Qwen3-Omni MoE](examples/qwen3_omni_moe)** | [config](examples/qwen3_omni_moe_ep2.yaml) | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ✅ | Multimodal MoE with EP (image, audio, text) |
 | **[WanVideo](examples/wanvideo)** | [run.sh](examples/wanvideo/run.sh) | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | T2V/I2V/V2V generation (1.3B/14B) |
 | **[FLA models](examples/dgn)** | [run.sh](examples/dgn/run.sh) | ✅ | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ | Efficient architecture, FineWeb-Edu pretraining |
 | **[dLLM (Qwen3)](examples/diffusion_language_model)** | [run.sh](examples/diffusion_language_model/run.sh) | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | Masked diffusion language model |
@@ -108,17 +109,19 @@ python -m lmms_engine.launch.cli config_yaml=examples/qwen3_vl/example_config.ya
 - **Liger**: Triton fused kernels (CrossEntropy, RMSNorm, RoPE, SwiGLU) for 30% memory reduction
 - **Packing**: First-fit bin packing for peaking at 35-40% MFU vs 20-25% (w/o in Qwen2.5-VL finetuning)
 - **NSA**: Native Sparse Attention for efficient long-context processing
+- **EP**: Expert Parallelism for Mixture-of-Experts models, sharding experts across GPUs
 
 > 💡 **Tip:** Each `run.sh` file contains detailed setup instructions, prerequisites, and configuration options.
 
 ## 🤖 Model Support
 
-**19+ architectures spanning vision-language, diffusion, and language models.**
+**20+ architectures spanning vision-language, diffusion, and language models.**
 
 ### Multimodal Models
 - **Qwen2.5-VL** - SOTA level performance vision-language model
 - **Qwen3-VL** - SOTA level performance vision-language model
 - **Qwen2.5-Omni** - Unified vision + audio + text modalities
+- **Qwen3-Omni MoE** - Multimodal Mixture-of-Experts with vision + audio + text and Expert Parallelism support
 - **LLaVA-OneVision** - Fully open-source vision-language model
 - **Bagel** - Unified multimodal model for visual understanding and generation
 - **Aero** - Lightweight audio-language model

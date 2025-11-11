@@ -15,35 +15,47 @@ from torch.distributed.tensor.parallel import (
     parallelize_module,
 )
 from tqdm import tqdm
-from transformers import Qwen3MoeForCausalLM
-from transformers.models.qwen3_moe.modeling_qwen3_moe import (
-    Qwen3MoeAttention,
-    Qwen3MoeMLP,
-    Qwen3MoeRMSNorm,
-    Qwen3MoeSparseMoeBlock,
+from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
+    Qwen3OmniMoeThinkerForConditionalGeneration,
+    Qwen3OmniMoeThinkerTextSparseMoeBlock,
 )
 
 import lmms_engine.parallel.process_group_manager as pgm
-from lmms_engine.models.qwen3_moe.qwen3_moe_experts import Qwen3MoeExperts
+from lmms_engine.models.qwen3_omni_moe.qwen3_omni_moe_experts import Qwen3OmniMoeExperts
 from lmms_engine.utils.fsdp2_utils import fsdp2_load_full_state_dict
 
-from .style import Qwen3MoeParallelStyle
+from .style import Qwen3OmniMoeParallelStyle
 
 if TYPE_CHECKING:
     from lmms_engine.train.config import TrainingArguments
 
 
-def stack_expert_params(model: Qwen3MoeForCausalLM) -> None:
-    logger.info("Stacking expert parameters for Qwen3Moe model")
+def stack_expert_params_qwen3_omni_moe(model: Qwen3OmniMoeThinkerForConditionalGeneration) -> None:
+    logger.info("Stacking expert parameters for Qwen3-Omni MoE model")
+
     with torch.no_grad():
         for decoder_layer in tqdm(
             model.model.layers, desc="Stacking expert parameters", disable=not dist.get_rank() == 0
         ):
-            new_experts = Qwen3MoeExperts(
-                num_experts=len(decoder_layer.mlp.experts),
-                hidden_dim=decoder_layer.mlp.experts[0].down_proj.weight.size(0),
-                intermediate_size=decoder_layer.mlp.experts[0].down_proj.weight.size(1),
-                act_fn=decoder_layer.mlp.experts[0].act_fn,
+            # Check if this layer has MoE structure
+            if not isinstance(decoder_layer.mlp, Qwen3OmniMoeThinkerTextSparseMoeBlock):
+                continue
+
+            if not hasattr(decoder_layer.mlp, "experts"):
+                continue
+
+            # Get expert configuration from the first expert
+            first_expert = decoder_layer.mlp.experts[0]
+            num_experts = len(decoder_layer.mlp.experts)
+            hidden_dim = first_expert.down_proj.weight.size(0)
+            intermediate_size = first_expert.down_proj.weight.size(1)
+            act_fn = first_expert.act_fn
+
+            new_experts = Qwen3OmniMoeExperts(
+                num_experts=num_experts,
+                hidden_dim=hidden_dim,
+                intermediate_size=intermediate_size,
+                act_fn=act_fn,
             )
 
             up_proj_weights = [expert.up_proj.weight for expert in decoder_layer.mlp.experts]
@@ -62,35 +74,44 @@ def stack_expert_params(model: Qwen3MoeForCausalLM) -> None:
             decoder_layer.mlp.add_module("experts", new_experts)
 
 
-def apply_qwen3_moe_parallel(
-    model: Qwen3MoeForCausalLM,
+def apply_qwen3_omni_moe_parallel(
+    model: Qwen3OmniMoeThinkerForConditionalGeneration,
     ep_mesh: DeviceMesh,
     tp_mesh: DeviceMesh = None,
     **kwargs,
 ):
-    assert tp_mesh is None, "Tensor Parallelism is not supported yet for Qwen3Moe"
+    assert tp_mesh is None, "Tensor Parallelism is not supported yet for Qwen3-Omni MoE"
 
+    num_moe_layers = 0
     for decoder_layer in model.model.layers:
+        # Only apply EP to MoE layers i.e. SparseMoeBlock
+        if not isinstance(decoder_layer.mlp, Qwen3OmniMoeThinkerTextSparseMoeBlock):
+            continue
+
+        if not hasattr(decoder_layer.mlp, "experts"):
+            continue
+
         module = decoder_layer.mlp
-        ep_plan = Qwen3MoeParallelStyle()
+        ep_plan = Qwen3OmniMoeParallelStyle()
         parallelize_module(
             module.experts,
             device_mesh=ep_mesh,
             parallelize_plan=ep_plan,
         )
+        num_moe_layers += 1
 
-    logger.info(f"Applied Qwen3MoeParallelStyle to {len(model.model.layers)} layers")
-    logger.info(f"Model: {model}")
+    logger.info(f"Applied Qwen3OmniMoeParallelStyle to {num_moe_layers} MoE layers")
+    logger.info(f"Model structure: {model}")
 
 
-def apply_qwen3_moe_fsdp2(
-    model: Qwen3MoeForCausalLM,
+def apply_qwen3_omni_moe_fsdp2(
+    model: Qwen3OmniMoeThinkerForConditionalGeneration,
     train_args: "TrainingArguments",
     **kwargs,
 ):
     if not train_args.fsdp_config.get("transformer_layer_cls_to_wrap", None):
         logger.warning(
-            "By default, we wrap the decoder layers for Qwen3Moe, the transformer_layer_cls_to_wrap will be ignored"
+            "By default, we wrap the decoder layers for Qwen3-Omni MoE, the transformer_layer_cls_to_wrap will be ignored"
         )
 
     if train_args.bf16:
@@ -119,7 +140,7 @@ def apply_qwen3_moe_fsdp2(
 
     ep_size = pgm.process_group_manager.ep_size
     if ep_size > 1:
-        # Prefer dim-1 sharding for expert weights when composing with EP shard on dim-0
+
         def _experts_shard_placement_fn(param):
             return Shard(1)
 
@@ -127,31 +148,41 @@ def apply_qwen3_moe_fsdp2(
         expert_fsdp_kwargs["mesh"] = pgm.process_group_manager.device_mesh["dp_shard_mod_ep"]
         expert_fsdp_kwargs["shard_placement_fn"] = _experts_shard_placement_fn
 
-    for decoder_layer in model.model.layers:
-        expert_mod = decoder_layer.mlp
+    # Wrap multimodal encoders with standard FSDP
+    if hasattr(model, "visual") and model.visual is not None:
+        fully_shard(model.visual, **fsdp_kwargs)
 
-        if ep_size > 1:
-            fully_shard(expert_mod, **expert_fsdp_kwargs)
+    if hasattr(model, "audio_tower") and model.audio_tower is not None:
+        fully_shard(model.audio_tower, **fsdp_kwargs)
+
+    for decoder_layer in model.model.layers:
+        # Check if this is a MoE layer
+        is_moe_layer = isinstance(decoder_layer.mlp, Qwen3OmniMoeThinkerTextSparseMoeBlock) and hasattr(
+            decoder_layer.mlp, "experts"
+        )
+
+        if is_moe_layer and ep_size > 1:
+            fully_shard(decoder_layer.mlp, **expert_fsdp_kwargs)
+        elif is_moe_layer:
+            fully_shard(decoder_layer.mlp, **fsdp_kwargs)
 
         fully_shard(decoder_layer.self_attn, **fsdp_kwargs)
 
-    # Shard the embed tokens
     fully_shard(model.model.embed_tokens, **fsdp_kwargs)
-    # Shard the root model
     fully_shard(model, **fsdp_kwargs)
 
 
-def apply_qwen3_moe_parallelize_fn(
-    model: Qwen3MoeForCausalLM,
+def apply_qwen3_omni_moe_parallelize_fn(
+    model: Qwen3OmniMoeThinkerForConditionalGeneration,
     train_args: "TrainingArguments",
     **kwargs,
 ):
     ep_size = pgm.process_group_manager.ep_size
-    stack_expert_params(model)
+    stack_expert_params_qwen3_omni_moe(model)
     full_state_dict = model.state_dict()
     if ep_size > 1:
-        ep_mesh = pgm.process_group_manager.device_mesh["ep"]
-        apply_qwen3_moe_parallel(model, ep_mesh=ep_mesh, **kwargs)
+        ep_mesh = pgm.process_group_manager.device_mesh["dp_shard_in_ep"]
+        apply_qwen3_omni_moe_parallel(model, ep_mesh=ep_mesh, **kwargs)
 
-    apply_qwen3_moe_fsdp2(model, train_args, **kwargs)
+    apply_qwen3_omni_moe_fsdp2(model, train_args, **kwargs)
     fsdp2_load_full_state_dict(model, full_state_dict)

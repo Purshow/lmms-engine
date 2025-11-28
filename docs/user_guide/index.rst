@@ -10,3 +10,4 @@ Comprehensive guides for using LMMs Engine in various scenarios.
    data_prep
    peak_perf
    merge_fsdp
+   fsdp2_reduce_dtype

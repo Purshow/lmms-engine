@@ -7,11 +7,13 @@ from typing import Literal
 
 import torch
 from accelerate import init_empty_weights
+from loguru import logger
 from tqdm import tqdm
-from transformers import AutoConfig
+from transformers import AutoConfig, AutoProcessor
 
 from lmms_engine.mapping_func import create_model_from_pretrained
 from lmms_engine.merger.base import CheckpointMerger
+from lmms_engine.models import *
 
 CheckpointType = Literal["regular", "ema"]
 
@@ -159,12 +161,14 @@ class FSDP2Merger(CheckpointMerger):
             ValueError: If checkpoint type directory is not found
         """
         # Resolve checkpoint path (handles parent directories with checkpoint-* subdirs)
+        original_checkpoint_path = checkpoint_path
         checkpoint_path = self._resolve_checkpoint_path(checkpoint_path)
 
         if output_path is None:
-            output_path = checkpoint_path
+            output_path = original_checkpoint_path
 
         shard_path = checkpoint_path / self._state_dict_dirname
+        logger.info(f"Selecting Checkpoint: {checkpoint_path} with state dict dirname: {self._state_dict_dirname}")
         if not shard_path.exists():
             raise ValueError(f"Checkpoint type '{self.checkpoint_type}' not found at {shard_path}")
 
@@ -182,7 +186,9 @@ class FSDP2Merger(CheckpointMerger):
         with init_empty_weights():
             model = model_cls.from_config(config)
         model.load_state_dict(full_state_dict, assign=True)
-
+        processor = AutoProcessor.from_pretrained(checkpoint_path)
+        processor.save_pretrained(output_path)
+        config.save_pretrained(output_path)
         # Save merged checkpoint
         model.save_pretrained(output_path)
 

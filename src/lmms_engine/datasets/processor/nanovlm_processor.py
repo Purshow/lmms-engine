@@ -94,9 +94,7 @@ class NanovlmDataProcessor:
         image_start_from = 0
         video_start_from = 0
         if add_system_prompt and hf_messages[0]["role"] != "system":
-            input_id += self._apply_chat_template(
-                [{"role": "system", "content": system_message}], tokenize=True
-            )
+            input_id += self._apply_chat_template([{"role": "system", "content": system_message}], tokenize=True)
             target += [-100] * len(input_id)
 
         for message in hf_messages:

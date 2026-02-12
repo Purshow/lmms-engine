@@ -1,9 +1,5 @@
 #!/bin/bash
-export PYTHONPATH=/mnt/afs/niuyuwei/Job/lmms-engine/src:$PYTHONPATH
-export WANDB_DISABLED=true
-export WANDB_MODE=disabled
-
-DATASET_PATH="./data/llava_next.yaml"
+DATASET_PATH="/path/to/dataset.yaml"
 PROCESSOR_NAME="LMMs-Lab-Speedrun/NanoVLM_Init"
 MODEL_PATH="LMMs-Lab-Speedrun/NanoVLM_Init"
 ATTN_IMPLEMENTATION="flash_attention_2"

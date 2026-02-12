@@ -42,9 +42,7 @@ class NanovlmConfig(PretrainedConfig):
         self.projector_hidden_size = projector_hidden_size
         self.projector_num_layers = int(projector_num_layers)
         self.projector_hidden_act = projector_hidden_act
-        self.vision_feature_dim = int(
-            vision_feature_dim or getattr(self.vision_config, "hidden_size", 1152)
-        )
+        self.vision_feature_dim = int(vision_feature_dim or getattr(self.vision_config, "hidden_size", 1152))
         self.image_token_count = int(image_token_count)
         self.vocab_size = getattr(self.text_config, "vocab_size", None)
         super().__init__(**kwargs)

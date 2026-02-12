@@ -6,6 +6,7 @@ from transformers import AutoModel, AutoModelForCausalLM
 from transformers.activations import ACT2FN
 from transformers.generation import GenerationMixin
 from transformers.modeling_utils import PreTrainedModel
+
 from .configuration_nanovlm import NanovlmConfig
 
 
@@ -101,9 +102,7 @@ class NanovlmForConditionalGeneration(PreTrainedModel, GenerationMixin):
         return self.language_model.set_output_embeddings(new_embeddings)
 
     def resize_token_embeddings(self, new_num_tokens: int, pad_to_multiple_of: Optional[int] = None):
-        return self.language_model.resize_token_embeddings(
-            new_num_tokens, pad_to_multiple_of=pad_to_multiple_of
-        )
+        return self.language_model.resize_token_embeddings(new_num_tokens, pad_to_multiple_of=pad_to_multiple_of)
 
     def forward(
         self,

@@ -19,10 +19,10 @@ class NanovlmDataProcessor:
     def build(self):
         self._tokenizer = AutoTokenizer.from_pretrained(self.config.processor_name)
 
-        image_processor_name = self.config.extra_kwargs.get(
-            "image_processor_name", "google/siglip2-base-patch16-naflex"
-        )
-        self.image_processor = AutoProcessor.from_pretrained(image_processor_name)
+        # Load image processor from the same local/remote checkpoint as tokenizer.
+        # `NanoVLM_init` now carries both tokenizer and preprocessor configs.
+        loaded_processor = AutoProcessor.from_pretrained(self.config.processor_name)
+        self.image_processor = getattr(loaded_processor, "image_processor", loaded_processor)
 
         self.image_token = self.config.extra_kwargs.get("image_token", "<|image_pad|>")
         self.video_token = self.config.extra_kwargs.get("video_token", "<|video_pad|>")
@@ -87,20 +87,19 @@ class NanovlmDataProcessor:
         add_system_prompt: bool = True,
         add_generation_prompt: bool = False,
     ):
-        template_messages = self._normalize_messages_for_template(hf_messages)
         special_tokens = list(self._tokenizer.additional_special_tokens)
         special_tokens.extend(["<|im_start|>", "<|im_end|>"])
         unmask_tokens_idx = [self._tokenizer.convert_tokens_to_ids(t) for t in special_tokens]
         input_id, target = [], []
         image_start_from = 0
         video_start_from = 0
-        if add_system_prompt and template_messages[0]["role"] != "system":
+        if add_system_prompt and hf_messages[0]["role"] != "system":
             input_id += self._apply_chat_template(
                 [{"role": "system", "content": system_message}], tokenize=True
             )
             target += [-100] * len(input_id)
 
-        for message in template_messages:
+        for message in hf_messages:
             role = message["role"]
             encode_id = self._apply_chat_template([message], tokenize=True)
             if self.image_token_id in encode_id and num_image_tokens is not None:
@@ -195,7 +194,10 @@ class NanovlmDataProcessor:
         if images is None and videos is None:
             return None, None, None
 
-        image_token_count = self.config.extra_kwargs.get("image_token_count", 256)
+        image_token_count = self.config.extra_kwargs.get(
+            "image_token_count",
+            getattr(self.image_processor, "max_num_patches", 256),
+        )
         flat_images: List = []
         num_image_tokens: List[int] = []
         num_video_tokens: List[int] = []
@@ -267,30 +269,6 @@ class NanovlmDataProcessor:
             pil = Image.fromarray(arr)
             return pil.convert("RGB")
         raise ValueError(f"Unsupported image type: {type(image)}")
-
-    def _normalize_messages_for_template(self, hf_messages):
-        normalized = []
-        for message in hf_messages:
-            content = message.get("content")
-            if isinstance(content, list):
-                parts = []
-                for item in content:
-                    if not isinstance(item, dict):
-                        parts.append(str(item))
-                        continue
-                    item_type = item.get("type")
-                    if item_type in ["image", "image_url"] or "image" in item:
-                        parts.append("<|vision_start|><|image_pad|><|vision_end|>\n")
-                    elif item_type in ["video", "video_url"] or "video" in item:
-                        parts.append("<|vision_start|><|video_pad|><|vision_end|>\n")
-                    elif item_type in ["audio", "audio_url"] or "audio" in item:
-                        parts.append("<|AUDIO|>\n")
-                    elif "text" in item:
-                        parts.append(item["text"])
-                normalized.append({"role": message["role"], "content": "".join(parts)})
-            else:
-                normalized.append(message)
-        return normalized
 
     @property
     def image_token_id(self):

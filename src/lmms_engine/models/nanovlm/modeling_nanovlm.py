@@ -6,7 +6,6 @@ from transformers import AutoModel, AutoModelForCausalLM
 from transformers.activations import ACT2FN
 from transformers.generation import GenerationMixin
 from transformers.modeling_utils import PreTrainedModel
-from transformers import Siglip2VisionModel
 from .configuration_nanovlm import NanovlmConfig
 
 
@@ -23,34 +22,22 @@ def _build_activation(act_name: str) -> nn.Module:
 
 class NanovlmForConditionalGeneration(PreTrainedModel, GenerationMixin):
     config_class = NanovlmConfig
-    base_model_prefix = "nanovlm"
     supports_gradient_checkpointing = True
+    _supports_flash_attn_2 = True
+    _supports_sdpa = True
 
-    def __init__(
-        self,
-        config: NanovlmConfig,
-        vision_model: Optional[PreTrainedModel] = None,
-        language_model: Optional[PreTrainedModel] = None,
-        **kwargs,
-    ):
+    def __init__(self, config: NanovlmConfig, **kwargs):
         super().__init__(config)
         attn_implementation = kwargs.pop("attn_implementation", None)
-        torch_dtype = kwargs.pop("torch_dtype", None)
+        kwargs.pop("torch_dtype", None)
 
-        if language_model is None:
-            language_model = AutoModelForCausalLM.from_pretrained(
-                config.llm_model_name,
-                attn_implementation=attn_implementation,
-                torch_dtype=torch_dtype,
-            )
-        if vision_model is None:
-            vision_model = Siglip2VisionModel.from_pretrained(
-                config.vision_model_name,
-                torch_dtype=torch_dtype,
-            )
-
-        self.language_model = language_model
-        self.vision_model = vision_model
+        # transformers-style init: build modules from config only.
+        self.language_model = AutoModelForCausalLM.from_config(
+            config.text_config,
+            attn_implementation=attn_implementation,
+        )
+        # SigLIP vision tower keeps its native attention path.
+        self.vision_model = AutoModel.from_config(config.vision_config)
 
         llm_hidden_size = getattr(self.language_model.config, "hidden_size", None)
         if llm_hidden_size is None:
